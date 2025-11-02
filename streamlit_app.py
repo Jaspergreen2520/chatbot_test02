@@ -1,24 +1,21 @@
 import streamlit as st
-from openai import OpenAI
+import requests
 
 # Show title and description.
-st.title("💬 Chatbot")
+st.title("💬 Chatbot (Gemini 2.5 Pro)")
 st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+    "このチャットボットはGoogle Gemini 2.5 Proモデルを使用して応答を生成します。 "
+    "利用にはGoogle Gemini APIキーが必要です。[APIキー取得方法](https://ai.google.dev/gemini-api/docs/api-key)。 "
+    "StreamlitでGeminiを使うチュートリアルは[こちら](https://ai.google.dev/gemini-api/docs/get-started-python)。"
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
+# Ask user for Gemini API key via `st.text_input`.
+gemini_api_key = st.text_input("Google Gemini API Key", type="password")
+if not gemini_api_key:
+    st.info("続行するにはGoogle Gemini APIキーを入力してください。", icon="🗝️")
 else:
-
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+    # Gemini APIエンドポイント
+    GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
 
     # Create a session state variable to store the chat messages. This ensures that the
     # messages persist across reruns.
@@ -30,27 +27,36 @@ else:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
-
+    # Create a chat input field to allow the user to enter a message.
+    if prompt := st.chat_input("何か話しかけてください！"):
         # Store and display the current prompt.
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+        # Gemini APIのリクエスト用メッセージリスト (user/assistantで構築)
+        gemini_messages = []
+        for m in st.session_state.messages:
+            if m["role"] == "user":
+                gemini_messages.append({"role": "user", "parts": [{"text": m["content"]}]})
+            else:
+                gemini_messages.append({"role": "model", "parts": [{"text": m["content"]}]})
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
+        # Gemini APIへリクエスト
+        headers = {"Content-Type": "application/json"}
+        params = {"key": gemini_api_key}
+        data = {
+            "contents": gemini_messages
+        }
+        response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=data)
+        if response.status_code == 200:
+            result = response.json()
+            # Geminiの返答取得
+            gemini_reply = result["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            gemini_reply = f"APIエラー: {response.status_code}\n{response.text}"
+
+        # Show Gemini reply and update session state
         with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            st.markdown(gemini_reply)
+        st.session_state.messages.append({"role": "assistant", "content": gemini_reply})
